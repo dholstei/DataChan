@@ -121,6 +121,8 @@ Reported failures before commit preserve both snapshots. The first successful re
 
 ## Update callback and manual testing
 
+For GUI, hardware, database, and publishing integration, see [Configure application interfaces in the caller](#configure-application-interfaces-in-the-caller). Defining callbacks in `main()` keeps those concrete dependencies out of the channel headers.
+
 Assign the callback before starting the worker:
 
 ```cpp
@@ -227,3 +229,60 @@ template class DataChan<CommTCP>;
 ```
 
 With definitions confined to `DataChan.cpp`, add an explicit instantiation for each additional supported device type. Alternatively, put template definitions in an included .tpp file to make them available for arbitrary types. The template schedules work; each device or specialization supplies the protocol and application behavior.
+
+## Dynamic polymorphism and DLL-only drivers
+
+The existing `DataChan<T>` design selects a concrete device type at compile time. Runtime-selected devices, including DLL-only closed-source drivers, can use an explicit specialization of the same template:
+
+```cpp
+template<>
+class DataChan<void*> {
+public:
+    void* device = nullptr;
+    const int timeout;
+
+    // Runtime dispatch table, ownership policy, and worker implementation.
+};
+```
+
+This is a design option, not an implemented driver interface. `DataChan<CommTCP>` and `DataChan<void*>` are distinct types and can coexist. A separate non-template `class DataChan` cannot coexist with the template under the same name in the same namespace. Function overloads such as `XPath()` and `XPath<T>()` follow different rules.
+
+A void pointer only stores an opaque device handle. Runtime polymorphic behavior requires an interface or function table that dispatches operations to the loaded driver. For example, a C-compatible table can contain:
+
+```cpp
+struct DeviceAPI {
+    void* device;
+    bool (*Connect)(void*);
+    bool (*Disconnect)(void*);
+    bool (*Read)(void*);
+    void (*Destroy)(void*);
+    // Add error retrieval and other operations required by the driver contract.
+};
+```
+
+An adapter can populate this table from a vendor's exported API; the vendor DLL does not need to implement the DataChan C++ interface. Closed-source status alone does not require this approach, but an opaque-handle interface is useful when source and concrete device types are unavailable to the consumer.
+
+Define who owns the handle and which function releases it. Use the vendor-provided destroy operation rather than deleting an opaque pointer. Stop and join the worker before releasing the device, and keep the library loaded until all its calls and destruction have completed. Match the vendor's calling convention, architecture, and ABI when resolving DLL functions. The example table is illustrative; it is not a complete portable plugin ABI.
+
+Declare the full specialization before any use that would implicitly instantiate `DataChan<void*>`. A full class specialization supplies its own members and method definitions: it does not automatically reuse the generic template's worker implementation. Shared lifecycle code can be factored into a common helper if both forms are implemented later. Methods of the fully specialized class are ordinary methods and do not need a `template<class T>` prefix.
+
+Dynamic loading does not itself make the POSIX CommTCP implementation Windows-compatible. A Windows runtime driver still needs an appropriate Windows implementation or vendor API, while the existing Linux build can continue using its concrete device types.
+
+## Configure application interfaces in the caller
+
+The calling `main()` can assemble the GUI, hardware-device, database, and publishing interfaces, then connect them through callbacks. Keep their concrete includes in the calling implementation file rather than introducing them into `DataChan.h` or device-independent headers.
+
+For example, `Update` can capture a publisher supplied by the application:
+
+```cpp
+LightsChan.Update = [&publisher](DataChan<CommTCP>& channel) {
+    // Compare snapshots and pass changes to the application's publisher.
+    publisher.PublishChanges(channel.cur_state, channel.last_state);
+};
+```
+
+`PublishChanges` is an illustrative application interface, not a method provided by this library. The channel only needs the callback signature; it does not need the publisher's class definition. The same convention can connect database storage, hardware actions, or GUI notifications without coupling the worker to those implementations.
+
+This arrangement reduces transitive `#include` dependencies, naming/macro conflicts, and opportunities for circular dependencies. Changes to an application's concrete interface can remain in its own implementation and the caller. Types appearing directly in a public signature or stored by value still require the appropriate declarations or definitions; callback configuration does not eliminate those language requirements.
+
+Objects captured by reference must outlive all callback invocations. Stop and join the worker before destroying those objects. Update runs on the worker thread, so a GUI callback must dispatch to the GUI thread, and database/publishing operations must follow their own thread-access requirements. Configure the shared `Error::Publisher` in the caller as well; if it captures an object, reset the callback before that object is destroyed.
