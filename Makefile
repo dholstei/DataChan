@@ -57,13 +57,20 @@ libDataChan.a:	DataChan.o  Error.o
 		then echo "--- Link $@: Success ---" | $(LOGGER) ;\
 		else echo "--- Link $@: FAILURE! ---" | $(LOGGER) ; exit 1; fi
 
+MANIFEST:=Makefile README.md *.cpp *.h monitor
+MANIFESTNAME:=DataChanArchive
+
 clean:
-	@if rm -fv *.a *.o *.so monitor;\
+	@if rm -fv *.a *.o *.so monitor $(MANIFESTNAME).*;\
 		then echo "--- $@: Success ---" | $(LOGGER) ;\
 		else echo "--- $@: FAILURE! ---" | $(LOGGER) ; exit 1; fi
 
-archive:
-	@if tar -czvf DataChanArchive.tar.gz *.cpp *.h Makefile monitor README.md;\
-		then echo "--- Archive $@: Success ---" | $(LOGGER) ;\
-		else echo "--- Archive $@: FAILURE! ---" | $(LOGGER) ; exit 1; fi
+archive: monitor
+	@if tar -czf $(MANIFESTNAME).tar.gz $(MANIFEST);\
+		then echo "--- $@: Success ---" | $(LOGGER) ;\
+		else echo "--- $@: FAILURE! ---" | $(LOGGER) ; exit 1; fi
 
+zip: monitor
+	@if zip -r $(MANIFESTNAME).zip $(MANIFEST);\
+		then echo "--- $@: Success ---" | $(LOGGER) ;\
+		else echo "--- $@: FAILURE! ---" | $(LOGGER) ; exit 1; fi
