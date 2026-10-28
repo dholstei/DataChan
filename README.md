@@ -1,5 +1,7 @@
 # DataChan programmer guide
 
+## My awesome solution to [Josh.ai | C++ Coding Challenge](https://github.com/jstarllc/JoshCodingChallenge#joshai--c-coding-challenge)
+
 `DataChan<T>` pairs a communication device with a periodic worker and a caller-defined update callback. The included `CommTCP` device performs synchronous HTTP/1.1 requests. Its `DataChan<CommTCP>::Read()` specialization monitors lights through a local service, retaining successful snapshots and reporting changes.
 
 ## Source layout
